@@ -1,4 +1,4 @@
-import { format, startOfMonth, addMonths, isBefore, isAfter, parseISO } from 'date-fns'
+import { format, startOfMonth, addMonths, isBefore, isAfter, parseISO, differenceInMonths } from 'date-fns'
 
 /**
  * Calculates dues, payment statuses, and generates month-by-month breakdown.
@@ -10,9 +10,15 @@ import { format, startOfMonth, addMonths, isBefore, isAfter, parseISO } from 'da
  */
 export function calculateDues(admissionDate, monthlyFee, payments = []) {
   const now = new Date()
-  const currentMonth = startOfMonth(now)
   const admissionParsed = parseISO(admissionDate)
   const admissionMonth = startOfMonth(admissionParsed)
+
+  // Calculate active months based on day-of-month trigger
+  // numActiveMonths is 1 (for the admission month) plus any full months since then.
+  // differenceInMonths correctly handles the day-of-month check.
+  const diffMonths = differenceInMonths(now, admissionParsed)
+  const numActiveMonths = Math.max(0, diffMonths + 1)
+  const activeEndMonth = addMonths(admissionMonth, numActiveMonths - 1)
 
   // Build a map of payments by target_month key
   const paymentMap = {}
@@ -24,15 +30,14 @@ export function calculateDues(admissionDate, monthlyFee, payments = []) {
     paymentMap[key] += Number(p.amount_paid)
   }
 
-  // Generate months: we show from 3 months before admission to current month
-  // Months before admission are "blue", months from admission onward are active
+  // Generate months: we show from 3 months before admission to current active month
   const displayStart = addMonths(admissionMonth, -3)
   const months = []
   let cursor = displayStart
   let totalDue = 0
-  let totalPaid = 0
+  let totalPaidInLoop = 0
 
-  while (!isAfter(cursor, currentMonth)) {
+  while (!isAfter(cursor, activeEndMonth)) {
     const key = format(cursor, 'yyyy-MM')
     const label = format(cursor, 'MMM yyyy')
     const amountPaid = paymentMap[key] || 0
@@ -49,7 +54,7 @@ export function calculateDues(admissionDate, monthlyFee, payments = []) {
 
     if (!isBeforeAdmission) {
       totalDue += monthlyFee
-      totalPaid += amountPaid
+      totalPaidInLoop += amountPaid
     }
 
     months.push({
@@ -63,6 +68,9 @@ export function calculateDues(admissionDate, monthlyFee, payments = []) {
 
     cursor = addMonths(cursor, 1)
   }
+
+  // Calculate total paid from all payments (including advance or historical)
+  const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount_paid), 0)
 
   return {
     months,
