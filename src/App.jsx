@@ -8,6 +8,7 @@ import PaymentModal from './components/PaymentModal'
 import AddStudentModal from './components/AddStudentModal'
 import EditStudentModal from './components/EditStudentModal'
 import DeleteConfirmModal from './components/DeleteConfirmModal'
+import { calculateDues, formatCurrency } from './utils/feeCalculations'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -59,10 +60,15 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
-  // Filtered students
   const filtered = students.filter((s) =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
+
+  // Calculate total balance for filtered students
+  const totalBalance = filtered.reduce((acc, s) => {
+    const dues = calculateDues(s.admission_date, Number(s.monthly_fee), s.payments || [])
+    return acc + dues.balance
+  }, 0)
 
   // Handlers
   const handleBadgeClick = (student, month) => setPaymentTarget({ student, month })
@@ -164,7 +170,7 @@ export default function App() {
         {!loading && (
           <>
             {/* Stats bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
               <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3">
                 <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider">Total Students</span>
                 <p className="text-lg font-bold text-slate-100 mt-0.5">{students.length}</p>
@@ -172,6 +178,12 @@ export default function App() {
               <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3">
                 <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider">Showing</span>
                 <p className="text-lg font-bold text-slate-100 mt-0.5">{filtered.length}</p>
+              </div>
+              <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3 shadow-lg shadow-indigo-500/5">
+                <span className="text-[0.65rem] text-indigo-400 uppercase tracking-wider font-semibold">Total Balance</span>
+                <p className={`text-lg font-bold mt-0.5 ${totalBalance > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {formatCurrency(totalBalance)}
+                </p>
               </div>
               <div className="hidden sm:block bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3">
                 <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider">Database</span>

@@ -77,6 +77,27 @@ export default function StudentTable({ students, onBadgeClick, onEdit, onDelete 
             )
           })}
         </tbody>
+        <tfoot>
+          <tr className="bg-slate-800/60 font-bold border-t border-slate-700/50">
+            <td colSpan="4" className="px-5 py-4 text-right text-slate-400 text-xs uppercase tracking-wider">
+              Total Outstanding Balance
+            </td>
+            <td className="px-5 py-4 text-right">
+              {(() => {
+                const total = students.reduce((acc, s) => {
+                  const dues = calculateDues(s.admission_date, Number(s.monthly_fee), s.payments || [])
+                  return acc + dues.balance
+                }, 0)
+                return (
+                  <span className={`text-sm ${total > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {formatCurrency(total)}
+                  </span>
+                )
+              })()}
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
       </table>
       {students.length === 0 && (
         <div className="py-16 text-center text-slate-500 text-sm">No students found. Add one to get started.</div>
