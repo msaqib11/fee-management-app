@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { GraduationCap, Plus, RefreshCw, Search, LogOut } from 'lucide-react'
+import { GraduationCap, Plus, RefreshCw, Search, LogOut, Eye, EyeOff, Users, TrendingUp, Wallet } from 'lucide-react'
 import { supabase } from './lib/supabase'
 import AuthPage from './components/AuthPage'
 import StudentTable from './components/StudentTable'
@@ -9,6 +9,7 @@ import AddStudentModal from './components/AddStudentModal'
 import EditStudentModal from './components/EditStudentModal'
 import DeleteConfirmModal from './components/DeleteConfirmModal'
 import { calculateDues, formatCurrency } from './utils/feeCalculations'
+import { startOfMonth, parseISO, isBefore } from 'date-fns'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -16,6 +17,8 @@ export default function App() {
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showAll, setShowAll] = useState(false)
+  const [showIncome, setShowIncome] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState(null)
   const [editTarget, setEditTarget] = useState(null)
@@ -60,15 +63,28 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
-  const filtered = students.filter((s) =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  // Calculate total balance for filtered students
-  const totalBalance = filtered.reduce((acc, s) => {
+  // Calculate stats and filter students
+  const currentMonthStart = startOfMonth(new Date())
+  
+  const stats = students.reduce((acc, s) => {
     const dues = calculateDues(s.admission_date, Number(s.monthly_fee), s.payments || [])
-    return acc + dues.balance
-  }, 0)
+    acc.totalBalance += dues.balance
+    acc.totalMonthlyIncome += Number(s.monthly_fee)
+    
+    const thisMonthPayments = (s.payments || []).filter(p => !isBefore(parseISO(p.payment_date), currentMonthStart))
+    acc.thisMonthCollection += thisMonthPayments.reduce((sum, p) => sum + Number(p.amount_paid), 0)
+    
+    if (dues.balance > 0) acc.unpaidCount++
+    return acc
+  }, { totalBalance: 0, totalMonthlyIncome: 0, thisMonthCollection: 0, unpaidCount: 0 })
+
+  const filtered = students.filter((s) => {
+    const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase())
+    if (!matchesSearch) return false
+    if (showAll) return true
+    const dues = calculateDues(s.admission_date, Number(s.monthly_fee), s.payments || [])
+    return dues.balance > 0
+  })
 
   // Handlers
   const handleBadgeClick = (student, month) => setPaymentTarget({ student, month })
@@ -142,17 +158,31 @@ export default function App() {
             </div>
           </div>
 
-          {/* Search */}
-          <div className="mt-5 relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            <input
-              id="search-students"
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search students..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-800/60 border border-slate-700/40 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/40 transition-all"
-            />
+          {/* Search & Filter */}
+          <div className="mt-5 flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input
+                id="search-students"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search students..."
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-800/60 border border-slate-700/40 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/40 transition-all"
+              />
+            </div>
+            
+            <button
+              onClick={() => setShowAll(!showAll)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                !showAll 
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20' 
+                  : 'bg-slate-800/60 border-slate-700/40 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              {showAll ? 'Showing All' : 'Unpaid Only'}
+            </button>
           </div>
         </header>
 
@@ -170,24 +200,73 @@ export default function App() {
         {!loading && (
           <>
             {/* Stats bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3">
-                <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider">Total Students</span>
-                <p className="text-lg font-bold text-slate-100 mt-0.5">{students.length}</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl px-5 py-4 relative group overflow-hidden">
+                <div className="absolute top-0 right-0 p-3 text-slate-500/20 group-hover:text-indigo-500/20 transition-colors pointer-events-none">
+                  <TrendingUp className="w-12 h-12" />
+                </div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[0.65rem] text-slate-400 uppercase tracking-widest font-semibold">Monthly Income</span>
+                  <button 
+                    onClick={() => setShowIncome(!showIncome)}
+                    className="p-1 hover:bg-slate-700/50 rounded-md transition-colors text-slate-500 hover:text-slate-300"
+                  >
+                    {showIncome ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-xl font-bold text-slate-100 font-mono tracking-tight">
+                  {showIncome ? formatCurrency(stats.totalMonthlyIncome) : '••••••'}
+                </p>
+                <div className="mt-2 h-1 w-full bg-slate-700/30 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500" style={{ width: '100%' }} />
+                </div>
               </div>
-              <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3">
-                <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider">Showing</span>
-                <p className="text-lg font-bold text-slate-100 mt-0.5">{filtered.length}</p>
+
+              <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl px-5 py-4 relative group overflow-hidden">
+                <div className="absolute top-0 right-0 p-3 text-slate-500/20 group-hover:text-emerald-500/20 transition-colors pointer-events-none">
+                  <Wallet className="w-12 h-12" />
+                </div>
+                <span className="text-[0.65rem] text-slate-400 uppercase tracking-widest font-semibold">This Month Collection</span>
+                <p className="text-xl font-bold text-emerald-400 mt-1 font-mono tracking-tight">
+                  {formatCurrency(stats.thisMonthCollection)}
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="h-1 flex-1 bg-slate-700/30 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-500 transition-all duration-1000" 
+                      style={{ width: `${Math.min(100, (stats.thisMonthCollection / stats.totalMonthlyIncome) * 100)}%` }} 
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    {Math.round((stats.thisMonthCollection / stats.totalMonthlyIncome) * 100) || 0}%
+                  </span>
+                </div>
               </div>
-              <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3 shadow-lg shadow-indigo-500/5">
-                <span className="text-[0.65rem] text-indigo-400 uppercase tracking-wider font-semibold">Total Balance</span>
-                <p className={`text-lg font-bold mt-0.5 ${totalBalance > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                  {formatCurrency(totalBalance)}
+
+              <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl px-5 py-4 relative group overflow-hidden shadow-lg shadow-indigo-500/5">
+                <div className="absolute top-0 right-0 p-3 text-slate-500/20 group-hover:text-red-500/20 transition-colors pointer-events-none">
+                  {/* Icon removed to debug ReferenceError */}
+                </div>
+                <span className="text-[0.65rem] text-indigo-400 uppercase tracking-widest font-bold">Total Balance</span>
+                <p className={`text-xl font-bold mt-1 font-mono tracking-tight ${stats.totalBalance > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {formatCurrency(stats.totalBalance)}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                  Across {stats.unpaidCount} students
                 </p>
               </div>
-              <div className="hidden sm:block bg-slate-800/40 border border-slate-700/30 rounded-xl px-4 py-3">
-                <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider">Database</span>
-                <p className="text-lg font-bold text-emerald-400 mt-0.5">Connected</p>
+
+              <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl px-5 py-4 relative group overflow-hidden">
+                <div className="absolute top-0 right-0 p-3 text-slate-500/20 group-hover:text-slate-300/20 transition-colors pointer-events-none">
+                  <Users className="w-12 h-12" />
+                </div>
+                <span className="text-[0.65rem] text-slate-400 uppercase tracking-widest font-semibold">Students</span>
+                <p className="text-xl font-bold text-slate-100 mt-1 font-mono tracking-tight">
+                  {filtered.length} / {students.length}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  {showAll ? 'Viewing all registered' : 'Showing only unpaid'}
+                </p>
               </div>
             </div>
 
